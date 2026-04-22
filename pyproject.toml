@@ -1,0 +1,10 @@
+[project]
+name = "basic-rag-engine"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.136.0",
+    "pydantic-settings>=2.14.0",
+    "scalar-fastapi>=1.8.2",
+    "uvicorn>=0.45.0",
+]
