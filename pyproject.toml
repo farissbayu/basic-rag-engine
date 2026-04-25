@@ -4,10 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.4",
-    "chonkie>=1.6.4",
+    "chonkie[model2vec]>=1.6.4",
     "chromadb>=1.5.8",
     "fastapi>=0.136.0",
     "mcp[cli]>=1.27.0",
+    "openai>=2.32.0",
     "pydantic-settings>=2.14.0",
     "pypdf>=6.10.2",
     "python-multipart>=0.0.26",
