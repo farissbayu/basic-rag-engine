@@ -6,6 +6,7 @@ from starlette.status import (
     HTTP_201_CREATED,
     HTTP_415_UNSUPPORTED_MEDIA_TYPE,
     HTTP_413_CONTENT_TOO_LARGE,
+    HTTP_200_OK,
 )
 import shutil
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
@@ -88,6 +89,21 @@ def upload_document(file: UploadFile = File(...), db=Depends(get_db)):
         "message": "File berhasil disimpan!",
         "filename": safe_filename,
     }
+
+
+@app.get("/search", status_code=HTTP_200_OK)
+def search(q: str):
+    collection = get_pdf_collection()
+    results = collection.query(query_texts=[q], n_results=3)
+
+    docs = results["documents"]
+    assert docs is not None
+
+    result = ""
+    for i, doc in enumerate(docs[0]):
+        result += f"  [{i + 1}] {doc[:200]}...\n"
+
+    return {"query": q, "results": result}
 
 
 @app.get("/scalar")
