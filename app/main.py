@@ -1,164 +1,24 @@
-from app.utils.openai import oa_client
-from chonkie import SemanticChunker
-from datetime import datetime, timezone
-from app.core.schema import Document, SearchResponse
-from app.core.engine import get_db
-from starlette.status import (
-    HTTP_201_CREATED,
-    HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-    HTTP_413_CONTENT_TOO_LARGE,
-    HTTP_200_OK,
-)
-import shutil
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
+from app.router.documents import document_router
+from app.router.search import search_router
+from app.router.uploads import upload_router
+from app.core.settings import settings
+from fastapi import FastAPI
 from scalar_fastapi import get_scalar_api_reference
 import os
-from pypdf import PdfReader
-from app.utils.chromadb_client import get_pdf_collection
+
 
 app = FastAPI()
 
-UPLOAD_DIR = "uploads"
+os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.include_router(upload_router)
+app.include_router(search_router)
+app.include_router(document_router)
 
 
 @app.get("/")
 def root():
     return {"message": "Hello, World!"}
-
-
-@app.post("/upload", status_code=HTTP_201_CREATED)
-def upload_document(file: UploadFile = File(...), db=Depends(get_db)):
-    # Cek apakah file yang diupload adalah PDF
-    if file.content_type != "application/pdf":
-        raise HTTPException(
-            status_code=HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF files are allowed.",
-        )
-
-    # Cek apakah ukuran file melebihi 10MB
-    MAX_FILE_SIZE = 10 * 1024 * 1024
-    file_content = file.file.read()
-    if len(file_content) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=HTTP_413_CONTENT_TOO_LARGE,
-            detail="File size exceeds the 10MB limit.",
-        )
-    file.file.seek(0)
-
-    safe_filename = file.filename or "uploaded_file"
-    file_path = os.path.join(UPLOAD_DIR, safe_filename)
-
-    # Simpan uploaded file ke folder uploads
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    # Ekstrak text dari file
-    extracted_text = ""
-    reader = PdfReader(file_path)
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            extracted_text += text
-
-    # Chunking
-    chunker = SemanticChunker(chunk_size=1024, threshold=0.6)
-    chunks = []
-    for i, chunk in enumerate(chunker.chunk(extracted_text)):
-        chunks.append(chunk.text)
-
-    # Embedding dan tambahkan chunks ke ChromaDB
-    collection = get_pdf_collection()
-    collection.add(
-        documents=chunks,
-        ids=[f"chunk_{i}" for i in range(len(chunks))],
-    )
-
-    # Simpan metadata ke database
-    new_document = Document(
-        filename=safe_filename,
-        size=file.size or 0,
-        uploaded_at=datetime.now(timezone.utc).isoformat(),
-    )
-
-    db.add(new_document)
-    db.commit()
-    db.refresh(new_document)
-
-    return {
-        "message": "File berhasil disimpan!",
-        "filename": safe_filename,
-    }
-
-
-def rag_prompt(query: str, context: list[str]) -> str:
-    context_str = "\n\n".join(context)
-
-    prompt = f"""
-    Use the following context to answer the question.
-    If the context doesn't contain enough information, say "I don't have enough information to answer that."
-
-    Context:
-    {context_str}
-
-    Question:
-    {query}
-
-    Formatting Instructions:
-    - Use markdown format with clear structure
-    - Use ### for main section headings
-    - Use **bold text** for key terms and important concepts
-    - Use bullet points with • (bullet character) for lists, not dashes
-    - Keep each bullet point concise (1-2 lines max)
-    - Add a blank line between sections for readability
-    - End with a brief summary paragraph
-    """
-    return prompt
-
-
-@app.get("/search", status_code=HTTP_200_OK)
-def search(q: str) -> SearchResponse:
-    collection = get_pdf_collection()
-    results = collection.query(query_texts=[q], n_results=3)
-
-    docs = results["documents"]
-    assert docs is not None
-
-    context = docs[0] if len(docs) > 0 else []
-    prompt = rag_prompt(q, context)
-
-    response = oa_client.chat.completions.create(
-        model="minimax/minimax-m2.5",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that answers questions based on the provided context.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-    )
-    answer = response.choices[0].message.content
-
-    return SearchResponse(
-        query=q,
-        answer=answer or "Sorry, I don't know the answer to that question.",
-        context=context,
-    )
-
-
-@app.get("/documents", status_code=HTTP_200_OK)
-def list_documents(db=Depends(get_db)):
-    documents = db.query(Document).all()
-    return {"documents": documents}
-
-
-@app.get("/documents/{document_id}", status_code=HTTP_200_OK)
-def get_document(document_id: str, db=Depends(get_db)):
-    document = db.query(Document).filter(Document.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return {"document": document}
 
 
 @app.get("/scalar")
