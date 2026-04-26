@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from sqlmodel import SQLModel, Field
 from ulid import ULID
 
@@ -11,3 +12,9 @@ class Document(SQLModel, table=True):
     filename: str
     size: int
     uploaded_at: str
+
+
+class SearchResponse(BaseModel):
+    query: str
+    answer: str
+    context: list[str]

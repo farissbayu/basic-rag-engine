@@ -1,6 +1,7 @@
+from app.utils.openai import oa_client
 from chonkie import SemanticChunker
 from datetime import datetime, timezone
-from app.core.schema import Document
+from app.core.schema import Document, SearchResponse
 from app.core.engine import get_db
 from starlette.status import (
     HTTP_201_CREATED,
@@ -91,19 +92,63 @@ def upload_document(file: UploadFile = File(...), db=Depends(get_db)):
     }
 
 
+def rag_prompt(query: str, context: list[str]) -> str:
+    context_str = "\n\n".join(context)
+
+    prompt = f"""
+        Use the following context to answer the question. If you don't know the answer, say you don't know.
+
+        Context:
+        {context_str}
+
+        Question:
+        {query}
+    """
+    return prompt
+
+
 @app.get("/search", status_code=HTTP_200_OK)
-def search(q: str):
+def search(q: str) -> SearchResponse:
     collection = get_pdf_collection()
     results = collection.query(query_texts=[q], n_results=3)
 
     docs = results["documents"]
     assert docs is not None
 
-    result = ""
-    for i, doc in enumerate(docs[0]):
-        result += f"  [{i + 1}] {doc[:200]}...\n"
+    context = docs[0] if len(docs) > 0 else []
+    prompt = rag_prompt(q, context)
 
-    return {"query": q, "results": result}
+    response = oa_client.chat.completions.create(
+        model="minimax/minimax-m2.5",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that answers questions based on the provided context.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+    )
+    answer = response.choices[0].message.content
+
+    return SearchResponse(
+        query=q,
+        answer=answer or "Sorry, I don't know the answer to that question.",
+        context=context,
+    )
+
+
+@app.get("/documents", status_code=HTTP_200_OK)
+def list_documents(db=Depends(get_db)):
+    documents = db.query(Document).all()
+    return {"documents": documents}
+
+
+@app.get("/documents/{document_id}", status_code=HTTP_200_OK)
+def get_document(document_id: str, db=Depends(get_db)):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"document": document}
 
 
 @app.get("/scalar")

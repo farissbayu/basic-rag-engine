@@ -1,5 +1,5 @@
 .venv
 .env
 uploads/
-chroma_db/
+chroma_db
 database.db
