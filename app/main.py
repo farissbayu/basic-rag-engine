@@ -96,13 +96,23 @@ def rag_prompt(query: str, context: list[str]) -> str:
     context_str = "\n\n".join(context)
 
     prompt = f"""
-        Use the following context to answer the question. If you don't know the answer, say you don't know.
+    Use the following context to answer the question.
+    If the context doesn't contain enough information, say "I don't have enough information to answer that."
 
-        Context:
-        {context_str}
+    Context:
+    {context_str}
 
-        Question:
-        {query}
+    Question:
+    {query}
+
+    Formatting Instructions:
+    - Use markdown format with clear structure
+    - Use ### for main section headings
+    - Use **bold text** for key terms and important concepts
+    - Use bullet points with • (bullet character) for lists, not dashes
+    - Keep each bullet point concise (1-2 lines max)
+    - Add a blank line between sections for readability
+    - End with a brief summary paragraph
     """
     return prompt
 
